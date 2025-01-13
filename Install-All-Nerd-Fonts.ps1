@@ -120,6 +120,9 @@ function Show-FontSelection {
         $fontName = $fontFamilies[$i]
         # Check if any font file from this family exists
         $fontFiles = Get-ChildItem -Path "$env:SystemRoot\Fonts" -Filter "*$fontName*.ttf" -ErrorAction SilentlyContinue
+        # Add a more thorough check for installed fonts
+        $fontFiles += Get-ChildItem -Path "$env:SystemRoot\Fonts" -Filter "*$fontName*Nerd*Font*.ttf" -ErrorAction SilentlyContinue
+        $fontFiles += Get-ChildItem -Path "$env:SystemRoot\Fonts" -Filter "*$fontName*NF*.ttf" -ErrorAction SilentlyContinue
         $selected[$fontName] = if ($fontFiles.Count -gt 0) { "installed" } else { "not_installed" }
     }
 
