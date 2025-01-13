@@ -76,7 +76,10 @@ foreach ($url in $fontUrls) {
         $destinationPath = Join-Path $env:SystemRoot\Fonts $fontFile.Name
         if (-Not (Test-Path -Path $destinationPath)) {
             try {
-                Copy-Item -Path $fontFile.FullName -Destination $destinationPath -Force
+                # Use Shell.Application to copy fonts
+                $shell = New-Object -ComObject Shell.Application
+                $fontsFolder = $shell.Namespace(0x14) # Windows Fonts folder
+                $fontsFolder.CopyHere($fontFile.FullName)
                 Write-Host "Installed $($fontFile.Name)"
             } catch {
                 Write-Error "Failed to install $($fontFile.Name): $_"
