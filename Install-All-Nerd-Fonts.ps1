@@ -8,7 +8,7 @@ if (-Not (Test-Path -Path $tempDir)) {
 }
 
 # System-wide fonts directory
-# $fontsDir = "$env:SystemRoot\Fonts" # This variable is not used
+$fontsDir = "$env:SystemRoot\Fonts" # This variable is not used
 
 # Create a single WebClient instance
 $client = New-Object System.Net.WebClient
@@ -37,8 +37,27 @@ try {
     return
 }
 
+# Add error handling for console width
+$consoleWidth = $Host.UI.RawUI.WindowSize.Width
+if ($consoleWidth -eq 0) {
+    $consoleWidth = 80  # fallback width
+}
+
+# Add check for empty font URLs
 if ($fontUrls.Count -eq 0) {
-    Write-Error "No font download links found. The page structure may have changed."
+    Write-Error "No font URLs found. Exiting..."
+    return
+}
+
+# Add validation for font families
+$fontFamilies = @($FontUrls | ForEach-Object {
+    if ($_ -match '/v[\d.]+/(.+?)\.zip') {
+        $Matches[1]
+    }
+} | Where-Object { $_ -ne $null } | Sort-Object -Unique)
+
+if ($fontFamilies.Count -eq 0) {
+    Write-Error "No valid font families found. Exiting..."
     return
 }
 
@@ -99,11 +118,9 @@ function Show-FontSelection {
     # Initialize selection state for new fonts
     foreach ($i in 0..($fontFamilies.Count - 1)) {
         $fontName = $fontFamilies[$i]
-        if (-not $selected.ContainsKey($fontName)) {
-            # Check if any font file from this family exists
-            $fontFiles = Get-ChildItem -Path "$env:SystemRoot\Fonts" -Filter "*$fontName*.ttf" -ErrorAction SilentlyContinue
-            $selected[$fontName] = if ($fontFiles.Count -gt 0) { "installed" } else { "not_installed" }
-        }
+        # Check if any font file from this family exists
+        $fontFiles = Get-ChildItem -Path "$env:SystemRoot\Fonts" -Filter "*$fontName*.ttf" -ErrorAction SilentlyContinue
+        $selected[$fontName] = if ($fontFiles.Count -gt 0) { "installed" } else { "not_installed" }
     }
 
     $currentIndex = 0
@@ -120,7 +137,9 @@ function Show-FontSelection {
                 $index = ($col * $rows) + $row
                 if ($index -lt $fontFamilies.Count) {
                     $fontName = $fontFamilies[$index]
-                    $marker = if ($selected[$fontName] -eq "installed") { "[×]" } elseif ($selected[$fontName] -eq "to_install") { "[+]" } else { "[ ]" }
+                    $marker = if ($selected[$fontName] -eq "installed") { "[×]" } 
+                             elseif ($selected[$fontName] -eq "to_install") { "[+]" } 
+                             else { "[ ]" }
                     $highlight = if ($index -eq $currentIndex) { ">" } else { " " }
                     $item = "$highlight$marker $fontName"
                     $line += $item.PadRight($itemWidth)
@@ -129,65 +148,48 @@ function Show-FontSelection {
             Write-Host $line
         }
     }
-
+    
     # Initial draw
     Update-Menu
-
-    # Handle key press events
-    while ($true) {
-        try {
-            $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-            if ($key.Character -eq ' ') {
+    
+    do {
+        # Handle key input
+        $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+        
+        switch ($key.VirtualKeyCode) {
+            38 { # Up arrow
+                $currentIndex = [Math]::Max(0, $currentIndex - 1)
+                Update-Menu
+            }
+            40 { # Down arrow
+                $currentIndex = [Math]::Min($fontFamilies.Count - 1, $currentIndex + 1)
+                Update-Menu
+            }
+            37 { # Left arrow
+                $currentIndex = [Math]::Max(0, $currentIndex - $rows)
+                Update-Menu
+            }
+            39 { # Right arrow
+                $currentIndex = [Math]::Min($fontFamilies.Count - 1, $currentIndex + $rows)
+                Update-Menu
+            }
+            32 { # Spacebar
                 $fontName = $fontFamilies[$currentIndex]
                 if ($selected[$fontName] -eq "not_installed") {
                     $selected[$fontName] = "to_install"
                 } elseif ($selected[$fontName] -eq "to_install") {
                     $selected[$fontName] = "not_installed"
                 }
-                Write-SelectionState -selectionState $selected
                 Update-Menu
             }
-            elseif ($key.VirtualKeyCode -eq 38) { # Up arrow
-                $currentIndex = [Math]::Max(0, $currentIndex - 1)
-                Update-Menu
+            13 { # Enter
+                Clear-Host
+                return $fontFamilies | Where-Object { 
+                    $selected[$_] -eq "to_install"
+                }
             }
-            elseif ($key.VirtualKeyCode -eq 40) { # Down arrow
-                $currentIndex = [Math]::Min($fontFamilies.Count - 1, $currentIndex + 1)
-                Update-Menu
-            }
-            elseif ($key.VirtualKeyCode -eq 37) { # Left arrow
-                $currentIndex = [Math]::Max(0, $currentIndex - $rows)
-                Update-Menu
-            }
-            elseif ($key.VirtualKeyCode -eq 39) { # Right arrow
-                $currentIndex = [Math]::Min($fontFamilies.Count - 1, $currentIndex + $rows)
-                Update-Menu
-            }
-            elseif ($key.VirtualKeyCode -eq 13) { # Enter key
-                break
-            }
-        } catch {
-            Write-Host "An error occurred: $_"
         }
-    }
-
-    # Filter out fonts that are not marked to install
-    $fontsToInstall = $fontFamilies | Where-Object { $selected[$_] -eq "to_install" }
-
-    if ($fontsToInstall.Count -eq 0) {
-        Write-Host "No fonts selected. Exiting..."
-        return
-    }
-
-    Write-Host "`nSelected $($fontsToInstall.Count) font packages. Starting download..."
-
-    foreach ($font in $fontsToInstall) {
-        $url = $FontUrls | Where-Object { $_ -match "/v[\d.]+/$font\.zip" }
-        if ($url) {
-            Write-Host "Extracting $font.zip..."
-            # Add your extraction logic here
-        }
-    }
+    } while ($true)
 }
 
 # Add these functions before the font selection code
@@ -215,6 +217,7 @@ function Get-SavedFontSelection {
 # Get selected font families
 Write-Host "Found $($fontUrls.Count) font packages."
 $selectedFamilies = Show-FontSelection -FontUrls $fontUrls
+Write-Host "Debug - Selected families: $($selectedFamilies -join ', ')"
 
 if (-not $selectedFamilies) {
     Write-Host "No fonts selected. Exiting..."
@@ -233,9 +236,11 @@ Write-Host "`nSelected $($selectedUrls.Count) font packages. Starting download..
 foreach ($url in $selectedUrls) {
     $fileName = [System.IO.Path]::GetFileName($url)
     $outputPath = Join-Path $tempDir $fileName
+    $extractPath = Join-Path $tempDir ([System.IO.Path]::GetFileNameWithoutExtension($fileName))
 
     if (-Not (Test-Path -Path $outputPath)) {
         try {
+            Write-Host "Downloading $fileName..."
             Get-File -Uri $url -OutputPath $outputPath
         } catch {
             Write-Error "Failed to download $fileName : $($_.Exception.Message)"
@@ -246,7 +251,6 @@ foreach ($url in $selectedUrls) {
     }
 
     Write-Host "Extracting $fileName..."
-    $extractPath = Join-Path $tempDir ([System.IO.Path]::GetFileNameWithoutExtension($fileName))
     if (-Not (Test-Path -Path $extractPath)) {
         try {
             Expand-Archive -Path $outputPath -DestinationPath $extractPath -Force
@@ -261,11 +265,10 @@ foreach ($url in $selectedUrls) {
         $destinationPath = Join-Path $env:SystemRoot\Fonts $fontFile.Name
         if (-Not (Test-Path -Path $destinationPath)) {
             try {
-                # Use Shell.Application to copy fonts
                 $shell = New-Object -ComObject Shell.Application
-                $fontsFolder = $shell.Namespace(0x14) # Windows Fonts folder
+                $fontsFolder = $shell.Namespace(0x14)
                 $fontsFolder.CopyHere($fontFile.FullName, 0x14)
-                Start-Sleep -Milliseconds 100  # Add small delay
+                Start-Sleep -Milliseconds 100
                 Write-Host "Installed $($fontFile.Name)"
             } catch {
                 Write-Error "Failed to install $($fontFile.Name): $_"
