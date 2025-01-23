@@ -22,12 +22,48 @@ function Get-File {
     $client.DownloadFile($Uri, $OutputPath)
 }
 
+# Add this function at the beginning of the script
+function Get-FontNameMappings {
+    try {
+        $response = Invoke-WebRequest -Uri $nerdFontsPage
+        
+        # Extract font name mappings from the website content
+        $mappings = @{}
+        
+        # Look for patterns like "Download Anonymice (Anonymous Pro)" in the content
+        $pattern = '(?:data-font="|<h2[^>]*>)([^"\s]+)\s*\(([^)]+)\)'
+        $matches = [regex]::Matches($response.Content, $pattern)
+        
+        foreach ($match in $matches) {
+            $nerdFontName = $match.Groups[1].Value
+            $originalName = $match.Groups[2].Value.Trim()
+            $mappings[$nerdFontName] = $originalName
+        }
+        
+        Write-Host "Found $($mappings.Count) font name mappings"
+        return $mappings
+    }
+    catch {
+        Write-Error "Failed to fetch font name mappings: $_"
+        # Fallback to basic mapping if web fetch fails
+        return @{
+            'AnonymicePro' = 'Anonymous Pro'
+            'CaskaydiaCove' = 'Cascadia Code'
+            'SauceCodePro' = 'Source Code Pro'
+            # Add more fallback mappings as needed
+        }
+    }
+}
+
 try {
     $response = Invoke-WebRequest -Uri $nerdFontsPage
 } catch {
     Write-Error "Failed to fetch Nerd Fonts download page: $_"
     return
 }
+
+# Get font name mappings
+$fontMappings = Get-FontNameMappings
 
 # Extract all font download URLs
 try {
@@ -95,7 +131,8 @@ Write-SelectionState -selectionState @{}
 
 function Show-FontSelection {
     param (
-        [array]$FontUrls
+        [array]$FontUrls,
+        [hashtable]$FontMappings
     )
     
     # Create a list of font families
@@ -118,11 +155,23 @@ function Show-FontSelection {
     # Initialize selection state for new fonts
     foreach ($i in 0..($fontFamilies.Count - 1)) {
         $fontName = $fontFamilies[$i]
-        # Check if any font file from this family exists
-        $fontFiles = Get-ChildItem -Path "$env:SystemRoot\Fonts" -Filter "*$fontName*.ttf" -ErrorAction SilentlyContinue
-        # Add a more thorough check for installed fonts
+        
+        # Check for installed fonts using both Nerd Font name and original name
+        $fontFiles = @()
+        
+        # Check Nerd Font name
+        $fontFiles += Get-ChildItem -Path "$env:SystemRoot\Fonts" -Filter "*$fontName*.ttf" -ErrorAction SilentlyContinue
         $fontFiles += Get-ChildItem -Path "$env:SystemRoot\Fonts" -Filter "*$fontName*Nerd*Font*.ttf" -ErrorAction SilentlyContinue
         $fontFiles += Get-ChildItem -Path "$env:SystemRoot\Fonts" -Filter "*$fontName*NF*.ttf" -ErrorAction SilentlyContinue
+        
+        # Check original name if it exists in mapping
+        if ($FontMappings.ContainsKey($fontName)) {
+            $originalName = $FontMappings[$fontName]
+            $fontFiles += Get-ChildItem -Path "$env:SystemRoot\Fonts" -Filter "*$originalName*.ttf" -ErrorAction SilentlyContinue
+            $fontFiles += Get-ChildItem -Path "$env:SystemRoot\Fonts" -Filter "*$originalName*Nerd*Font*.ttf" -ErrorAction SilentlyContinue
+            $fontFiles += Get-ChildItem -Path "$env:SystemRoot\Fonts" -Filter "*$originalName*NF*.ttf" -ErrorAction SilentlyContinue
+        }
+        
         $selected[$fontName] = if ($fontFiles.Count -gt 0) { "installed" } else { "not_installed" }
     }
 
@@ -219,7 +268,7 @@ function Get-SavedFontSelection {
 
 # Get selected font families
 Write-Host "Found $($fontUrls.Count) font packages."
-$selectedFamilies = Show-FontSelection -FontUrls $fontUrls
+$selectedFamilies = Show-FontSelection -FontUrls $fontUrls -FontMappings $fontMappings
 Write-Host "Debug - Selected families: $($selectedFamilies -join ', ')"
 
 if (-not $selectedFamilies) {
