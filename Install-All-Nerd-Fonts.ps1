@@ -161,16 +161,14 @@ function Show-FontSelection {
         
         # Check Nerd Font name
         $fontFiles += Get-ChildItem -Path "$env:SystemRoot\Fonts" -Filter "*$fontName*.ttf" -ErrorAction SilentlyContinue
-        $fontFiles += Get-ChildItem -Path "$env:SystemRoot\Fonts" -Filter "*$fontName*Nerd*Font*.ttf" -ErrorAction SilentlyContinue
-        $fontFiles += Get-ChildItem -Path "$env:SystemRoot\Fonts" -Filter "*$fontName*NF*.ttf" -ErrorAction SilentlyContinue
-        
+        $fontFiles += Get-ChildItem -Path "$env:LOCALAPPDATA\Microsoft\Windows\Fonts" -Filter "*$fontName*.ttf" -ErrorAction SilentlyContinue
+                
         # Check original name if it exists in mapping
         if ($FontMappings.ContainsKey($fontName)) {
             $originalName = $FontMappings[$fontName]
             $fontFiles += Get-ChildItem -Path "$env:SystemRoot\Fonts" -Filter "*$originalName*.ttf" -ErrorAction SilentlyContinue
-            $fontFiles += Get-ChildItem -Path "$env:SystemRoot\Fonts" -Filter "*$originalName*Nerd*Font*.ttf" -ErrorAction SilentlyContinue
-            $fontFiles += Get-ChildItem -Path "$env:SystemRoot\Fonts" -Filter "*$originalName*NF*.ttf" -ErrorAction SilentlyContinue
-        }
+            $fontFiles += Get-ChildItem -Path "$env:LOCALAPPDATA\Microsoft\Windows\Fonts" -Filter "*$originalName*.ttf" -ErrorAction SilentlyContinue
+         }
         
         $selected[$fontName] = if ($fontFiles.Count -gt 0) { "installed" } else { "not_installed" }
     }
